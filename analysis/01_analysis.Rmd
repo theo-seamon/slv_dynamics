@@ -1,0 +1,124 @@
+---
+title: "Exploratory Spatial Analysis"
+output: html_notebook
+---
+
+
+```{r}
+library(terra)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(here)
+```
+
+```{r}
+res_dir <- here("data", "Resilience")
+out_dir <- here("outputs", "01_explore")
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+months <- c("MAY", "JUN", "JUL", "AUG", "SEP")
+```
+
+```{r}
+res_stack <- rast(file.path(res_dir, paste0("Resilience", months, ".tif")))
+names(res_stack) <- months
+res_stack
+
+global(res_stack, "notNA")
+```
+
+```{r}
+n_years <- 38
+
+tau_crit <- function(n, alpha = 0.05) {
+  var_s <- n * (n - 1) * (2 * n + 5) / 18
+  qnorm(1 - alpha / 2) * sqrt(var_s) / (n * (n - 1) / 2)
+}
+tc <- tau_crit(n_years)
+tc
+```
+
+```{r}
+tau_long <- lapply(months, function(m) {
+  data.frame(month = m,
+             tau = as.vector(values(res_stack[[m]], na.rm = TRUE)))
+}) |>
+  bind_rows() |>
+  mutate(month = factor(month, levels = months))
+
+nrow(tau_long)
+```
+
+```{r}
+tau_summary <- tau_long |>
+  group_by(month) |>
+  summarise(
+    pixels           = n(),
+    hectares         = n() * 0.09,
+    mean_tau         = mean(tau),
+    median_tau       = median(tau),
+    pct_declining    = 100 * mean(tau < 0),
+    pct_zero         = 100 * mean(tau == 0),
+    pct_sig_decline  = 100 * mean(tau < -tc),
+    pct_sig_increase = 100 * mean(tau > tc)
+  )
+tau_summary
+
+write.csv(tau_summary, file.path(out_dir, "tau_summary.csv"), row.names = FALSE)
+```
+
+```{r}
+p_hist <- ggplot(tau_long, aes(x = tau)) +
+  geom_histogram(binwidth = 0.02) +
+  geom_vline(xintercept = 0) +
+  geom_vline(xintercept = c(-tc, tc), linetype = "dashed") +
+  facet_wrap(~ month, ncol = 1) +
+  labs(x = "Kendall's tau (trend in surface water)", y = "Pixels",
+       title = "Trend values by month (dashed = approx. significance)")
+p_hist
+
+ggsave(file.path(out_dir, "tau_histograms.png"), p_hist, width = 6, height = 8)
+```
+
+```{r}
+blanca <- vect(here("data", "boundaries", "blanca_core.shp")) |>
+  project(crs(res_stack))
+
+res_blanca <- crop(res_stack, ext(blanca) + 500)   # 500 m margin
+
+plot(res_blanca$JUN, col = pal, range = c(-0.72, 0.72),
+     maxcell = Inf, colNA = "grey92", main = "June trend, Blanca")
+lines(blanca, lwd = 1.5)
+```
+```{r}
+trend_class <- classify(res_stack, rcl = matrix(c(
+  -Inf, -tc, 1,
+  -tc,   tc, 2,
+   tc,  Inf, 3), ncol = 3, byrow = TRUE))
+
+jun_class <- trend_class$JUN
+levels(jun_class) <- data.frame(value = 1:3,
+  trend = c("Significant decline", "No clear trend", "Significant increase"))
+
+jun_class_blanca <- crop(jun_class, ext(blanca) + 500)   # 500 m margin
+
+plot(jun_class_blanca, col = c("#B2182B", "grey85", "#2166AC"),
+     main = "June trend class")
+
+writeRaster(trend_class, file.path(out_dir, "trend_class.tif"), overwrite = TRUE)
+```
+
+```{r}
+n_obs      <- sum(!is.na(res_stack))
+n_sig_decl <- sum(res_stack < -tc, na.rm = TRUE)
+n_sig_decl <- mask(n_sig_decl, n_obs, maskvalues = 0)
+
+freq(n_sig_decl)
+
+plot(crop(n_sig_decl, blanca),
+     col = c("grey85", hcl.colors(5, "OrRd", rev = TRUE)),
+     type = "classes", maxcell = Inf, colNA = "grey92",
+     main = "Months with significant decline, Blanca core")
+```
+
