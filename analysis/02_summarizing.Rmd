@@ -1,0 +1,67 @@
+---
+title: "02_summarizing"
+output: html_document
+---
+
+```{r}
+library(terra)
+library(sf)
+library(dplyr)
+library(stringr)
+library(exactextractr)
+library(here)
+
+sw_dir  <- here("data", "SurfaceWater")
+wet_min <- 0.235
+```
+
+```{r}
+nwi <- st_read(here("data", "Boundaries", "NWI_SLV.shp")) |>
+  st_transform(32613) |>
+  mutate(
+    nwi_id    = row_number(),
+    nwi_ha    = as.numeric(st_area(geometry)) / 10000,
+    system    = substr(ATTRIBUTE, 1, 1),
+    regime    = str_extract(ATTRIBUTE, "[A-Z](?=[^A-Z]*$)"),
+    impounded = str_detect(ATTRIBUTE, "h"),
+    excavated = str_detect(ATTRIBUTE, "x")
+  )
+
+nrow(nwi)
+sum(nwi$nwi_ha)
+table(nwi$regime, useNA = "ifany")
+nwi |> st_drop_geometry() |>
+  select(ATTRIBUTE, system, regime, impounded) |>
+  slice_sample(n = 10)
+```
+
+```{r}
+f <- "SurfaceWater2015-2022JUN.tif"
+r <- rast(file.path(sw_dir, f))
+r
+
+global(r, "notNA")[1, 1] * 0.09
+r <- ifel(r >= wet_min, r, NA)
+global(r, "notNA")[1, 1] * 0.09
+```
+
+```{r}
+s <- exact_extract(r, nwi, fun = c("count", "mean"))
+head(s)
+summary(s)
+```
+
+```{r}
+test <- nwi |>
+  st_drop_geometry() |>
+  select(nwi_id, ATTRIBUTE, WETLAND_TY, system, regime, impounded, excavated, nwi_ha) |>
+  mutate(
+    file        = f,
+    wet_ha      = s$count * 0.09,
+    mean_wet    = s$mean,
+    pct_flooded = 100 * wet_ha / nwi_ha
+  )
+
+head(test)
+```
+
