@@ -1,6 +1,8 @@
 ---
 title: "Exploratory Spatial Analysis"
 output: html_notebook
+editor_options: 
+  chunk_output_type: inline
 ---
 
 
@@ -86,7 +88,7 @@ blanca <- vect(here("data", "boundaries", "blanca_core.shp")) |>
   project(crs(res_stack))
 
 res_blanca <- crop(res_stack, ext(blanca) + 500)   # 500 m margin
-
+pal <- hcl.colors(101, "RdBu")
 plot(res_blanca$JUN, col = pal, range = c(-0.72, 0.72),
      maxcell = Inf, colNA = "grey92", main = "June trend, Blanca")
 lines(blanca, lwd = 1.5)

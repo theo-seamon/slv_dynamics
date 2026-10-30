@@ -16,7 +16,7 @@ wet_min <- 0.235
 ```
 
 ```{r}
-nwi <- st_read(here("data", "Boundaries", "NWI_SLV.shp")) |>
+nwi <- st_read(here("data", "Boundaries", "NWI" ,"NWI_SLV.shp")) |>
   st_transform(32613) |>
   mutate(
     nwi_id    = row_number(),
